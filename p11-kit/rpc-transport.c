@@ -53,6 +53,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #ifdef OS_UNIX
 #include <sys/select.h>
@@ -820,6 +821,69 @@ rpc_exec_init (const char *remote,
 	return &rex->base;
 }
 
+typedef struct {
+	p11_rpc_transport base;
+	int fd;
+} rpc_fd;
+
+static void
+rpc_fd_disconnect (p11_rpc_client_vtable *vtable,
+                   void *fini_reserved)
+{
+	rpc_fd *rfd = (rpc_fd *)vtable;
+
+	if (rfd->base.socket)
+		rpc_socket_close (rfd->base.socket);
+
+	close (rfd->fd);
+	rfd->fd = 0;
+
+	/* Do the common disconnect stuff */
+	rpc_transport_disconnect (vtable, fini_reserved);
+}
+
+static CK_RV
+rpc_fd_connect (p11_rpc_client_vtable *vtable,
+                void *init_reserved)
+{
+	rpc_fd *rfd = (rpc_fd *)vtable;
+
+	p11_debug ("executing fd transport: %d", rfd->fd);
+	rfd->base.socket = rpc_socket_new (rfd->fd);
+	return_val_if_fail (rfd->base.socket != NULL, CKR_GENERAL_ERROR);
+
+	return CKR_OK;
+}
+
+static void
+rpc_fd_free (void *data)
+{
+	rpc_fd *rfd = data;
+	rpc_fd_disconnect (data, NULL);
+	rpc_transport_uninit (&rfd->base);
+	free (rfd);
+}
+
+static p11_rpc_transport *
+rpc_fd_init (const char *remote,
+             const char *name)
+{
+	rpc_fd *rfd;
+
+	rfd = calloc (1, sizeof (rpc_fd));
+	return_val_if_fail (rfd != NULL, NULL);
+
+	rfd->fd = atoi (remote);
+
+	rfd->base.vtable.connect = rpc_fd_connect;
+	rfd->base.vtable.disconnect = rpc_fd_disconnect;
+	rfd->base.vtable.transport = rpc_transport_buffer;
+	rpc_transport_init (&rfd->base, name, rpc_fd_free);
+
+	p11_debug ("initialized rpc fd: %s", remote);
+	return &rfd->base;
+}
+
 #endif /* OS_UNIX */
 
 p11_rpc_transport *
@@ -841,6 +905,9 @@ p11_rpc_transport_new (p11_virtual *virt,
 	/* This is a command we can execute */
 	if (remote[0] == '|') {
 		rpc = rpc_exec_init (remote + 1, name);
+
+	} else if (isdigit (remote[0])) {
+		rpc = rpc_fd_init (remote, name);
 
 	} else {
 		p11_message ("remote not supported: %s", remote);
