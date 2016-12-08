@@ -144,6 +144,11 @@ const char*         p11_kit_uri_get_pin_source              (P11KitUri *uri);
 void                p11_kit_uri_set_pin_source              (P11KitUri *uri,
                                                              const char *pin_source);
 
+const char*         p11_kit_uri_get_p11_kit_remote          (P11KitUri *uri);
+
+void                p11_kit_uri_set_p11_kit_remote          (P11KitUri *uri,
+                                                             const char *p11_kit_remote);
+
 #ifndef P11_KIT_DISABLE_DEPRECATED
 
 const char*         p11_kit_uri_get_pinfile                 (P11KitUri *uri);

@@ -148,6 +148,7 @@ struct p11_kit_uri {
 	char *pin_source;
 	char *pin_value;
 	CK_SLOT_ID slot_id;
+	char *p11_kit_remote;
 };
 
 static char *
@@ -728,6 +729,44 @@ p11_kit_uri_set_pinfile (P11KitUri *uri, const char *pinfile)
 }
 
 /**
+ * p11_kit_uri_get_p11_kit_remote:
+ * @uri: The URI
+ *
+ * Get the 'p11-kit-remote' part of the URI. This is used by some
+ * applications to establish a connection to a token via p11-kit
+ * remoting facility.
+ *
+ * 'p11-kit-remote' is a non-standard vendor extension.
+ *
+ * Returns: The p11-kit-remote or %NULL if not present.
+ */
+const char*
+p11_kit_uri_get_p11_kit_remote (P11KitUri *uri)
+{
+	return_val_if_fail (uri != NULL, NULL);
+	return uri->p11_kit_remote;
+}
+
+/**
+ * p11_kit_uri_set_p11_kit_remote:
+ * @uri: The URI
+ * @p11_kit_remote: The new p11-kit-remote
+ *
+ * Set the 'p11-kit-remote' part of the URI. This is used by some
+ * applications to establish a connection to a token via p11-kit
+ * remoting facility.
+ *
+ * 'p11-kit-remote' is a non-standard vendor extension.
+ */
+void
+p11_kit_uri_set_p11_kit_remote (P11KitUri *uri, const char *p11_kit_remote)
+{
+	return_if_fail (uri != NULL);
+	free (uri->p11_kit_remote);
+	uri->p11_kit_remote = p11_kit_remote ? strdup (p11_kit_remote) : NULL;
+}
+
+/**
  * p11_kit_uri_new:
  *
  * Create a new blank PKCS\#11 URI.
@@ -1039,6 +1078,14 @@ p11_kit_uri_format (P11KitUri *uri, P11KitUriType uri_type, char **string)
 		}
 	}
 
+	if (uri->p11_kit_remote) {
+		if (!format_encode_string (&buffer, &sep, "p11-kit-remote",
+		                           (const unsigned char*)uri->p11_kit_remote,
+		                           strlen (uri->p11_kit_remote), 0)) {
+			return_val_if_reached (P11_KIT_URI_UNEXPECTED);
+		}
+	}
+
 	return_val_if_fail (p11_buffer_ok (&buffer), P11_KIT_URI_UNEXPECTED);
 	*string = p11_buffer_steal (&buffer, NULL);
 	return P11_KIT_URI_OK;
@@ -1309,25 +1356,32 @@ parse_extra_info (const char *name_start, const char *name_end,
 		  const char *start, const char *end,
 		  P11KitUri *uri)
 {
-	unsigned char *pin_source;
+	unsigned char *tmp;
 
 	assert (name_start <= name_end);
 	assert (start <= end);
 
 	if (str_range_equal ("pinfile", name_start, name_end) ||
 	    str_range_equal ("pin-source", name_start, name_end)) {
-		pin_source = p11_url_decode (start, end, P11_URL_WHITESPACE, NULL);
-		if (pin_source == NULL)
+		tmp = p11_url_decode (start, end, P11_URL_WHITESPACE, NULL);
+		if (tmp == NULL)
 			return P11_KIT_URI_BAD_ENCODING;
 		free (uri->pin_source);
-		uri->pin_source = (char*)pin_source;
+		uri->pin_source = (char*)tmp;
 		return 1;
 	} else if (str_range_equal ("pin-value", name_start, name_end)) {
-		pin_source = p11_url_decode (start, end, P11_URL_WHITESPACE, NULL);
-		if (pin_source == NULL)
+		tmp = p11_url_decode (start, end, P11_URL_WHITESPACE, NULL);
+		if (tmp == NULL)
 			return P11_KIT_URI_BAD_ENCODING;
 		free (uri->pin_value);
-		uri->pin_value = (char*)pin_source;
+		uri->pin_value = (char*)tmp;
+		return 1;
+	} else if (str_range_equal ("p11-kit-remote", name_start, name_end)) {
+		tmp = p11_url_decode (start, end, P11_URL_WHITESPACE, NULL);
+		if (tmp == NULL)
+			return P11_KIT_URI_BAD_ENCODING;
+		free (uri->p11_kit_remote);
+		uri->p11_kit_remote = (char*)tmp;
 		return 1;
 	}
 
@@ -1404,6 +1458,8 @@ p11_kit_uri_parse (const char *string, P11KitUriType uri_type,
 	uri->pin_source = NULL;
 	free (uri->pin_value);
 	uri->pin_value = NULL;
+	free (uri->p11_kit_remote);
+	uri->p11_kit_remote = NULL;
 	uri->slot_id = (CK_SLOT_ID)-1;
 
 	/* Parse the path. */
@@ -1508,6 +1564,7 @@ p11_kit_uri_free (P11KitUri *uri)
 	p11_attrs_free (uri->attrs);
 	free (uri->pin_source);
 	free (uri->pin_value);
+	free (uri->p11_kit_remote);
 	free (uri);
 }
 
