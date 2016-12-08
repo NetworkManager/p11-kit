@@ -104,6 +104,11 @@ install-exec-hook:
 
 endif
 
+systemduserdir = $(prefix)/lib/systemd/user
+systemduser_DATA = \
+	p11-kit/p11-kit-remote.socket \
+	p11-kit/p11-kit-remote@.service
+
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = p11-kit/p11-kit-1.pc
 

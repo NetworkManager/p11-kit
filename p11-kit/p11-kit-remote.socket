@@ -1,0 +1,9 @@
+[Unit]
+Description=PKCS#11 Remote Access Socket
+
+[Socket]
+Accept=true
+ListenStream=%t/p11-kit-remote
+
+[Install]
+WantedBy=sockets.target
