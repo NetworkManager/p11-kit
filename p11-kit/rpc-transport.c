@@ -884,6 +884,89 @@ rpc_fd_init (const char *remote,
 	return &rfd->base;
 }
 
+typedef struct {
+	p11_rpc_transport base;
+	struct sockaddr_un name;
+	int fd;
+} rpc_unix;
+
+static void
+rpc_unix_disconnect (p11_rpc_client_vtable *vtable,
+                   void *fini_reserved)
+{
+	rpc_unix *rfd = (rpc_unix *)vtable;
+
+	if (rfd->base.socket)
+		rpc_socket_close (rfd->base.socket);
+
+	if (rfd->fd != -1) {
+		close (rfd->fd);
+		rfd->fd = -1;
+	}
+
+	/* Do the common disconnect stuff */
+	rpc_transport_disconnect (vtable, fini_reserved);
+}
+
+static CK_RV
+rpc_unix_connect (p11_rpc_client_vtable *vtable,
+                void *init_reserved)
+{
+	rpc_unix *rfd = (rpc_unix *)vtable;
+
+	p11_debug ("executing unix transport: path=%s", rfd->name.sun_path);
+
+	rfd->fd = socket (AF_UNIX, SOCK_STREAM, 0);
+	if (rfd->fd == -1) {
+		p11_message_err (errno, "failed to create socket for remote");
+		return CKR_DEVICE_ERROR;
+	}
+
+	if (connect (rfd->fd, (const struct sockaddr *) &rfd->name, sizeof (rfd->name))) {
+		p11_message_err (errno, "failed to connect socket for remote");
+		return CKR_DEVICE_ERROR;
+	}
+
+	rfd->base.socket = rpc_socket_new (rfd->fd);
+	return_val_if_fail (rfd->base.socket != NULL, CKR_GENERAL_ERROR);
+
+	return CKR_OK;
+}
+
+static void
+rpc_unix_free (void *data)
+{
+	rpc_unix *rfd = data;
+	rpc_unix_disconnect (data, NULL);
+	rpc_transport_uninit (&rfd->base);
+	free (rfd);
+}
+
+static p11_rpc_transport *
+rpc_unix_init (const char *remote,
+               const char *name)
+{
+	rpc_unix *rfd;
+
+	if (strlen (remote) >= sizeof (rfd->name.sun_path))
+		return NULL;
+
+	rfd = calloc (1, sizeof (rpc_unix));
+	return_val_if_fail (rfd != NULL, NULL);
+
+	rfd->fd = -1;
+	rfd->name.sun_family = AF_UNIX;
+	strcpy (rfd->name.sun_path, remote);
+
+	rfd->base.vtable.connect = rpc_unix_connect;
+	rfd->base.vtable.disconnect = rpc_unix_disconnect;
+	rfd->base.vtable.transport = rpc_transport_buffer;
+	rpc_transport_init (&rfd->base, name, rpc_unix_free);
+
+	p11_debug ("initialized rpc unix: path=%s", remote);
+	return &rfd->base;
+}
+
 #endif /* OS_UNIX */
 
 p11_rpc_transport *
@@ -908,6 +991,9 @@ p11_rpc_transport_new (p11_virtual *virt,
 
 	} else if (isdigit (remote[0])) {
 		rpc = rpc_fd_init (remote, name);
+
+	} else if (strncmp (remote, "unix:path=/", 11) == 0) {
+		rpc = rpc_unix_init (remote + 10, name);
 
 	} else {
 		p11_message ("remote not supported: %s", remote);
