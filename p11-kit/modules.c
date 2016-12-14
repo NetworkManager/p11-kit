@@ -2691,6 +2691,9 @@ p11_kit_module_release (CK_FUNCTION_LIST *module)
 
 		release_module_inlock_rentrant (module, __PRETTY_FUNCTION__);
 
+		/* In case nothing loaded, free up internal memory */
+		free_modules_when_no_refs_unlocked ();
+
 	p11_unlock ();
 
 	p11_debug ("out");
@@ -2699,7 +2702,14 @@ p11_kit_module_release (CK_FUNCTION_LIST *module)
 CK_RV
 p11_module_release_inlock_reentrant (CK_FUNCTION_LIST *module)
 {
-	return release_module_inlock_rentrant (module, __PRETTY_FUNCTION__);
+	CK_RV rv;
+
+	rv = release_module_inlock_rentrant (module, __PRETTY_FUNCTION__);
+
+	/* In case nothing loaded, free up internal memory */
+	free_modules_when_no_refs_unlocked ();
+
+	return rv;
 }
 
 /**
