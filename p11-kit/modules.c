@@ -171,6 +171,7 @@ static struct _Shared {
 	p11_dict *modules;
 	p11_dict *unmanaged_by_funcs;
 	p11_dict *managed_by_closure;
+	p11_dict *remote_modules;
 	p11_dict *config;
 } gl = { NULL, NULL };
 
@@ -411,22 +412,27 @@ setup_module_for_remote_inlock (const char *name,
 
 	p11_debug ("remoting module %s using: %s", name, remote);
 
-	mod = alloc_module_unlocked ();
-	return_val_if_fail (mod != NULL, CKR_HOST_MEMORY);
+	mod = p11_dict_get (gl.remote_modules, remote);
+	if (!mod) {
+		mod = alloc_module_unlocked ();
+		return_val_if_fail (mod != NULL, CKR_HOST_MEMORY);
 
-	rpc = p11_rpc_transport_new (&mod->virt, remote, name);
-	if (rpc == NULL) {
-		free_module_unlocked (mod);
-		return CKR_DEVICE_ERROR;
+		rpc = p11_rpc_transport_new (&mod->virt, remote, name);
+		if (rpc == NULL) {
+			free_module_unlocked (mod);
+			return CKR_DEVICE_ERROR;
+		}
+
+		mod->filename = NULL;
+		mod->loaded_module = rpc;
+		mod->loaded_destroy = p11_rpc_transport_free;
+
+		/* This takes ownership of the module */
+		if (!p11_dict_set (gl.modules, mod, mod) ||
+		    !p11_dict_set (gl.remote_modules, (void *)remote, mod)) {
+			return_val_if_reached (CKR_HOST_MEMORY);
+		}
 	}
-
-	mod->filename = NULL;
-	mod->loaded_module = rpc;
-	mod->loaded_destroy = p11_rpc_transport_free;
-
-	/* This takes ownership of the module */
-	if (!p11_dict_set (gl.modules, mod, mod))
-		return_val_if_reached (CKR_HOST_MEMORY);
 
 	*result = mod;
 	return CKR_OK;
@@ -709,6 +715,13 @@ init_globals_unlocked (void)
 		return_val_if_fail (gl.managed_by_closure != NULL, CKR_HOST_MEMORY);
 	}
 
+	if (!gl.remote_modules) {
+		gl.remote_modules = p11_dict_new (p11_dict_str_hash,
+		                                  p11_dict_str_equal,
+		                                  NULL, NULL);
+		return_val_if_fail (gl.remote_modules != NULL, CKR_HOST_MEMORY);
+	}
+
 	if (once)
 		return CKR_OK;
 
@@ -729,6 +742,9 @@ free_modules_when_no_refs_unlocked (void)
 		if (mod->ref_count)
 			return;
 	}
+
+	p11_dict_free (gl.remote_modules);
+	gl.remote_modules = NULL;
 
 	p11_dict_free (gl.unmanaged_by_funcs);
 	gl.unmanaged_by_funcs = NULL;
