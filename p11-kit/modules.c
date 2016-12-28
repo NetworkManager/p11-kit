@@ -2751,7 +2751,7 @@ p11_kit_load_initialize_module (const char *module_path,
 			}
 		}
 
-		if (rv == CKR_OK && module) {
+		if (rv == CKR_OK) {
 			*module = unmanaged_for_module_inlock (mod);
 			assert (*module != NULL);
 		}
